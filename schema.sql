@@ -36,8 +36,8 @@ DROP INDEX IF EXISTS indexUsersForumsUserLow;
 
 
 CREATE TABLE IF NOT EXISTS users (
-  nickname  VARCHAR     PRIMARY KEY,
-  fullname  VARCHAR,
+  nickname  CITEXT     PRIMARY KEY,
+  fullname  CITEXT,
   about     TEXT,
   email     CITEXT      NOT NULL UNIQUE
 );
@@ -52,7 +52,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS indexUniqueNicknameLow ON users(LOWER(nickname
 CREATE TABLE IF NOT EXISTS forums (
   id        SERIAL      NOT NULL PRIMARY KEY,
   title     VARCHAR     NOT NULL,
-  username  VARCHAR     NOT NULL REFERENCES users(nickname),
+  username  CITEXT      NOT NULL REFERENCES users(nickname),
   slug      CITEXT      NOT NULL UNIQUE,
   posts     INTEGER     DEFAULT 0,
   threads   INTEGER     DEFAULT 0
@@ -65,7 +65,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS indexUniqueSlugForums ON forums(slug);
 
 CREATE TABLE IF NOT EXISTS threads (
   id        SERIAL                      NOT NULL PRIMARY KEY,
-  author    VARCHAR                     NOT NULL REFERENCES users(nickname),
+  author    CITEXT                      NOT NULL REFERENCES users(nickname),
   created   TIMESTAMP WITH TIME ZONE    DEFAULT current_timestamp,
   forum     CITEXT                      NOT NULL REFERENCES forums(slug),
   message   TEXT                        NOT NULL,
@@ -82,7 +82,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS indexUniqueSlugThread ON threads(slug);
 
 CREATE TABLE IF NOT EXISTS posts (
   id        BIGSERIAL                   NOT NULL PRIMARY KEY,
-  author    VARCHAR                     NOT NULL REFERENCES users(nickname),
+  author    CITEXT                      NOT NULL REFERENCES users(nickname),
   created   TIMESTAMP WITH TIME ZONE    DEFAULT current_timestamp,
   forum     VARCHAR,
   isEdited  BOOLEAN                     DEFAULT FALSE,
@@ -136,7 +136,7 @@ CREATE INDEX IF NOT EXISTS indexPostThreadPath ON posts(thread, path);
 
 CREATE TABLE IF NOT EXISTS votes (
   id        SERIAL      NOT NULL PRIMARY KEY,
-  username  VARCHAR     NOT NULL REFERENCES users(nickname),
+  username  CITEXT      NOT NULL REFERENCES users(nickname),
   voice     INTEGER,
   thread    INTEGER     NOT NULL REFERENCES threads(id),
   UNIQUE(username, thread)
@@ -144,8 +144,8 @@ CREATE TABLE IF NOT EXISTS votes (
 
 
 CREATE TABLE IF NOT EXISTS usersForums (
-  username         VARCHAR     REFERENCES users(nickname) NOT NULL,
-  forum        CITEXT      REFERENCES forums(slug) NOT NULL,
+  username         CITEXT     REFERENCES users(nickname) NOT NULL,
+  forum            CITEXT     REFERENCES forums(slug) NOT NULL,
   UNIQUE (forum, username)
 );
 

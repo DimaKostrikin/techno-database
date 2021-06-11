@@ -215,7 +215,7 @@ func forumThreadCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sql2 := fmt.Sprintf("SELECT id, author, created, forum, message, slug, title, votes FROM threads WHERE id='%d'", insertId)
-	err = db.QueryRow(sql2).ScasqlVote := fmt.Sprintf("SELECT username, voice FROM votes WHERE thread=%d", threadId)n(&thread.ID, &thread.Author, &thread.Created, &thread.Forum, &thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
+	err = db.QueryRow(sql2).Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum, &thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
 
 	sql3 := fmt.Sprintf("INSERT INTO usersForums (username, forum) VALUES ('%s','%s')", thread.Author, slug)
 	db.Query(sql3)
@@ -749,12 +749,12 @@ func threadVote(w http.ResponseWriter, r *http.Request) {
 		rowsVote.Scan(&voteGot.Nickname, vote.Voice)
 	}
 
-	if (vote.Voice == -voteGot.Voice && vote.Nickname == voteGot.Nickname) {
+	if vote.Voice == -voteGot.Voice && vote.Nickname == voteGot.Nickname {
 		sqlVote := fmt.Sprintf("UPDATE votes SET voice=%d WHERE id=%d", vote.Voice, voteGot.Id)
 		db.Query(sqlVote)
 	}
 
-	if (vote.Nickname == "") {
+	if vote.Nickname == "" {
 		sqlVote := fmt.Sprintf("INSERT INTO votes (username, voice, thread) VALUES ('%s', %d, %d)", vote.Nickname, vote.Voice, thread.ID)
 		db.Query(sqlVote)
 	}
@@ -782,32 +782,37 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 
 	sql := fmt.Sprintf("INSERT INTO users (nickname, fullname, about, email) VALUES ('%s', '%s', '%s', '%s')", nickname, userGot.Fullname, userGot.About, userGot.Email)
 
-	rows, err1 := db.Query(sql)
+	_, err1 := db.Query(sql)
 
-	if (err1 != nil) {
-		var returnedUser User
-		sqlGet := fmt.Sprintf("SELECT nickname, fullname, about, email FROM users WHERE nickname='%s'", userGot.Nickname)
+	if err1 != nil {
+		var returnedUser []User
+		fmt.Println(err1)
+		sqlGet := fmt.Sprintf("SELECT nickname, fullname, about, email FROM users WHERE nickname='%s' OR email='%s'", nickname, userGot.Email)
+
 		rowsGet, _ := db.Query(sqlGet)
 
 		for rowsGet.Next() {
-			rowsGet.Scan(returnedUser.Nickname, returnedUser.Fullname, returnedUser.About, returnedUser.Email)
+			var us User
+			rowsGet.Scan(&us.Nickname, &us.Fullname, &us.About, &us.Email)
+			returnedUser = append(returnedUser, us)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(returnedUser)
+		return
 	}
 
 	var returnedUser User
-	sqlGet := fmt.Sprintf("SELECT nickname, fullname, about, email FROM users WHERE nickname='%s'", userGot.Nickname)
+	sqlGet := fmt.Sprintf("SELECT nickname, fullname, about, email FROM users WHERE nickname='%s'", nickname)
 	rowsGet, _ := db.Query(sqlGet)
 
 	for rowsGet.Next() {
-		rowsGet.Scan(returnedUser.Nickname, returnedUser.Fullname, returnedUser.About, returnedUser.Email)
+		rowsGet.Scan(&returnedUser.Nickname, &returnedUser.Fullname, &returnedUser.About, &returnedUser.Email)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(returnedUser)
 }
 
@@ -828,10 +833,10 @@ func userInfo(w http.ResponseWriter, r *http.Request) {
 	rowsGet, _ := db.Query(sqlGet)
 
 	for rowsGet.Next() {
-		rowsGet.Scan(returnedUser.Nickname, returnedUser.Fullname, returnedUser.About, returnedUser.Email)
+		rowsGet.Scan(&returnedUser.Nickname, &returnedUser.Fullname, &returnedUser.About, &returnedUser.Email)
 	}
 
-	if (returnedUser.Nickname == "") {
+	if returnedUser.Nickname == "" {
 		http.Error(w, "Can't find user", 404)
 		return
 	}
@@ -863,7 +868,7 @@ func userChange(w http.ResponseWriter, r *http.Request) {
 
 	var selectUser User
 	for rows.Next() {
-		rows.Scan(selectUser.Nickname, selectUser.Fullname, selectUser.About, selectUser.Email)
+		rows.Scan(&selectUser.Nickname, &selectUser.Fullname, &selectUser.About, &selectUser.Email)
 	}
 
 	if selectUser.Nickname == "" {
@@ -872,16 +877,16 @@ func userChange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userGot.Nickname = selectUser.Nickname
-	
-	if (userGot.Fullname == "") {
+
+	if userGot.Fullname == "" {
 		userGot.Fullname = selectUser.Fullname
 	}
 
-	if (userGot.About == "") {
+	if userGot.About == "" {
 		userGot.About = selectUser.About
 	}
 
-	if (userGot.Email == "") {
+	if userGot.Email == "" {
 		userGot.Email = selectUser.Email
 	}
 
@@ -893,7 +898,6 @@ func userChange(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(userGot)
 }
-
 
 func handleRequests() { // РОУТЫ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	myRouter := mux.NewRouter().StrictSlash(true)
@@ -914,7 +918,7 @@ func handleRequests() { // РОУТЫ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	myRouter.HandleFunc("/api/thread/{slug_or_id}/posts", getThreadPosts)
 	myRouter.HandleFunc("/api/thread/{slug_or_id}/vote", threadVote).Methods("POST")
 	myRouter.HandleFunc("/api/user/{nickname}/create", createUser).Methods("POST")
-	myRouter.HandleFunc("/api/user/{nickname}/profile", userInfo)
+	myRouter.HandleFunc("/api/user/{nickname}/profile", userInfo).Methods("GET")
 	myRouter.HandleFunc("/api/user/{nickname}/profile", userChange).Methods("POST")
 	log.Fatal(http.ListenAndServe(":5000", myRouter))
 }
