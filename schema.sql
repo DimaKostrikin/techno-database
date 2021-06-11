@@ -81,7 +81,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS indexUniqueSlugThread ON threads(slug);
 
 
 CREATE TABLE IF NOT EXISTS posts (
-  id        SERIAL                      NOT NULL PRIMARY KEY,
+  id        BIGSERIAL                   NOT NULL PRIMARY KEY,
   author    VARCHAR                     NOT NULL REFERENCES users(nickname),
   created   TIMESTAMP WITH TIME ZONE    DEFAULT current_timestamp,
   forum     VARCHAR,
