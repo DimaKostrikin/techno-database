@@ -34,8 +34,8 @@ type Forum struct {
 	Title   string `json:"title"`
 	User    string `json:"user"`
 	Slug    string `json:"slug"`
-	Posts   string `json:"posts"`
-	Threads string `json:"threads"`
+	Posts   int    `json:"posts, ommitempty"`
+	Threads int    `json:"threads, ommitempty"`
 }
 
 type Thread struct {
@@ -97,6 +97,10 @@ type Vote struct {
 	Thread   int32  `json:"thread"`
 }
 
+type ErrorMessage struct {
+	Message string `json:"message"`
+}
+
 /*
 1111
   11
@@ -111,13 +115,37 @@ func createForum(w http.ResponseWriter, r *http.Request) {
 	var forum Forum
 	json.Unmarshal(reqBody, &forum)
 
-	sqlString := fmt.Sprintf("INSERT INTO forums (username, slug, title) VALUES ('%s','%s','%s')", forum.User, forum.Slug, forum.Title)
+	sqlStringUserName := fmt.Sprintf("SELECT nickname FROM users WHERE nickname='%s'", forum.User)
+
+	rowsUser, _ := db.Query(sqlStringUserName)
+
+	var userName string
+	for rowsUser.Next() {
+		rowsUser.Scan(&userName)
+	}
+
+	if userName == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		var Error ErrorMessage
+		Error.Message = "Cant find user"
+
+		json.NewEncoder(w).Encode(Error)
+		return
+	}
+
+	sqlString := fmt.Sprintf("INSERT INTO forums (username, slug, title) VALUES ('%s','%s','%s')", userName, forum.Slug, forum.Title)
 	//sqlString := "INSERT INTO forums (username, slug, title) VALUES ('abc','abcde','abc')"
 	_, err = db.Query(sqlString)
 	if err != nil {
 		fmt.Println(err)
 		if strings.Contains(err.Error(), "insert or update") {
-			http.Error(w, "Can't find user", 404)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			var Error ErrorMessage
+			Error.Message = "Cant find user"
+
+			json.NewEncoder(w).Encode(Error)
 			return
 		}
 
@@ -127,16 +155,13 @@ func createForum(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sqlString2 := fmt.Sprintf("SELECT title, username as user, slug, posts, threads FROM forums WHERE slug='%s'", forum.Slug)
+	sqlString2 := fmt.Sprintf("SELECT title, username, slug, posts, threads FROM forums WHERE slug='%s'", forum.Slug)
 	rows, _ := db.Query(sqlString2)
 
 	var got Forum
 	for rows.Next() {
-		forum := new(Forum)
-
-		rows.Scan(&forum.Title, &forum.User, &forum.Slug, &forum.Posts, &forum.Threads)
-
-		got = *forum
+		rows.Scan(&got.Title, &got.User, &got.Slug, &got.Posts, &got.Threads)
+		fmt.Println(got.User)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -170,12 +195,17 @@ func detailsForum(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if got.Slug == "" {
-		http.Error(w, "Can't find forum", 404)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		var Error ErrorMessage
+		Error.Message = "Cant find Forum"
+
+		json.NewEncoder(w).Encode(Error)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(got)
 }
 
@@ -837,7 +867,12 @@ func userInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if returnedUser.Nickname == "" {
-		http.Error(w, "Can't find user", 404)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		var Error ErrorMessage
+		Error.Message = "Cant find user"
+
+		json.NewEncoder(w).Encode(Error)
 		return
 	}
 
@@ -861,6 +896,7 @@ func userChange(w http.ResponseWriter, r *http.Request) {
 
 	var userGot User
 	json.Unmarshal(reqBody, &userGot)
+	fmt.Print(userGot.About)
 
 	sql := fmt.Sprintf("SELECT nickname, fullname, about, email FROM users WHERE nickname='%s'", nickname)
 
@@ -872,7 +908,12 @@ func userChange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if selectUser.Nickname == "" {
-		http.Error(w, "Can't find user", 404)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		var Error ErrorMessage
+		Error.Message = "Cant find user"
+
+		json.NewEncoder(w).Encode(Error)
 		return
 	}
 
@@ -890,9 +931,19 @@ func userChange(w http.ResponseWriter, r *http.Request) {
 		userGot.Email = selectUser.Email
 	}
 
-	sqlUpdate := fmt.Sprintf("UPDATE users SET (fullname, about, email) = ('%s', '%s', '%s')", userGot.Fullname, userGot.About, userGot.Email)
+	sqlUpdate := fmt.Sprintf("UPDATE users SET (fullname, about, email) = ('%s', '%s', '%s') WHERE nickname='%s'", userGot.Fullname, userGot.About, userGot.Email, userGot.Nickname)
 
-	db.Query(sqlUpdate)
+	_, err := db.Query(sqlUpdate)
+
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		var Error ErrorMessage
+		Error.Message = "Updating email exist"
+
+		json.NewEncoder(w).Encode(Error)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
