@@ -6,6 +6,7 @@ DROP Table IF EXISTS forums CASCADE;
 DROP Table IF EXISTS threads CASCADE;
 DROP Table IF EXISTS posts CASCADE;
 DROP Table IF EXISTS votes CASCADE;
+DROP Table IF EXISTS usersForums CASCADE;
 
 
 DROP INDEX IF EXISTS indexUniqueEmail;
@@ -66,7 +67,7 @@ CREATE TABLE IF NOT EXISTS threads (
   id        SERIAL                      NOT NULL PRIMARY KEY,
   author    VARCHAR                     NOT NULL REFERENCES users(nickname),
   created   TIMESTAMP WITH TIME ZONE    DEFAULT current_timestamp,
-  forum     INTEGER                     NOT NULL REFERENCES forums(id),
+  forum     CITEXT                      NOT NULL REFERENCES forums(slug),
   message   TEXT                        NOT NULL,
   slug      CITEXT                      UNIQUE,
   title     VARCHAR                     NOT NULL,
@@ -88,8 +89,38 @@ CREATE TABLE IF NOT EXISTS posts (
   message   TEXT                        NOT NULL,
   parent    INTEGER                     DEFAULT 0,
   thread    INTEGER                     NOT NULL REFERENCES threads(id),
-  path      BIGINT                      ARRAY
+  path      BIGINT[]
 );
+
+CREATE OR REPLACE FUNCTION set_post_path()
+    RETURNS TRIGGER AS
+$set_post_path$
+DECLARE
+    parent_thread BIGINT;
+    parent_path   BIGINT[];
+BEGIN
+    IF (new.parent = 0) THEN
+        new.path := new.path || new.id;
+    ELSE
+        SELECT thread, path
+        FROM posts p
+        WHERE p.thread = new.thread
+          AND p.id = new.parent
+        INTO parent_thread , parent_path;
+        IF parent_thread != new.thread OR NOT FOUND THEN
+            RAISE EXCEPTION USING ERRCODE = '00404';
+        END IF;
+        new.path := parent_path || new.id;
+    END IF;
+    RETURN new;
+END;
+$set_post_path$ LANGUAGE plpgsql;
+
+CREATE TRIGGER set_post_path
+    BEFORE INSERT
+    ON posts
+    FOR EACH ROW
+EXECUTE PROCEDURE set_post_path();
 
 
 CREATE INDEX IF NOT EXISTS indexPostAuthor ON posts(author);
@@ -113,11 +144,11 @@ CREATE TABLE IF NOT EXISTS votes (
 
 
 CREATE TABLE IF NOT EXISTS usersForums (
-  user_nickname     VARCHAR     REFERENCES users(nickname) NOT NULL,
-  forum_id          INTEGER     REFERENCES forums(id) NOT NULL
+  username         VARCHAR     REFERENCES users(nickname) NOT NULL,
+  forum        CITEXT      REFERENCES forums(slug) NOT NULL,
+  UNIQUE (forum, username)
 );
 
 
-CREATE INDEX IF NOT EXISTS indexUsersForumsUser ON usersForums (user_nickname);
-CREATE INDEX IF NOT EXISTS indexUsersForumsForum ON usersForums (forum_id);
-CREATE INDEX IF NOT EXISTS indexUsersForumsUserLow on usersForums (lower(user_nickname) COLLATE "ucs_basic");
+CREATE INDEX IF NOT EXISTS indexUsersForumsUser ON usersForums (username);
+CREATE INDEX IF NOT EXISTS indexUsersForumsForum ON usersForums (forum);
