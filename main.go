@@ -652,6 +652,7 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 		gotPosts = append(gotPosts, post)
 	}
 
+	db.Query(fmt.Sprintf("UPDATE forums SET posts = posts + %d WHERE slug='%s'", len(gotPosts), thread.Forum))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(gotPosts)
@@ -800,6 +801,16 @@ func getThreadPosts(w http.ResponseWriter, r *http.Request) {
 	if sortString == "flat" {
 		sqlString = fmt.Sprintf("SELECT id, parent, author, message, isEdited, forum, thread, created FROM posts WHERE thread=%d", threadId)
 
+		if sinceString != "" {
+			since, _ := strconv.Atoi(sinceString)
+
+			if desc == true {
+				sqlString = sqlString + fmt.Sprintf(" AND id<%d", since)
+			} else {
+				sqlString = sqlString + fmt.Sprintf(" AND id>%d", since)
+			}
+		}
+
 		if desc == true {
 			sqlString = sqlString + " ORDER BY id DESC"
 		} else {
@@ -812,17 +823,22 @@ func getThreadPosts(w http.ResponseWriter, r *http.Request) {
 			sqlString = sqlString + fmt.Sprintf(" LIMIT %d", limit)
 		}
 
-		if sinceString != "" {
-			since, _ := strconv.Atoi(sinceString)
-
-			sqlString = sqlString + fmt.Sprintf(" OFFSET %d", since)
-		}
 		fmt.Println(sqlString)
 	}
 
 	if sortString == "tree" {
 		sqlString = fmt.Sprintf("SELECT id, parent, author, message, isEdited, forum, thread, created FROM posts WHERE thread=%d", threadId)
 
+		if sinceString != "" {
+			since, _ := strconv.Atoi(sinceString)
+
+			if desc == true {
+				sqlString = sqlString + fmt.Sprintf(" AND path < (SELECT path FROM posts WHERE id=%d)", since)
+			} else {
+				sqlString = sqlString + fmt.Sprintf(" AND path > (SELECT path FROM posts WHERE id=%d)", since)
+			}
+		}
+
 		if desc == true {
 			sqlString = sqlString + " ORDER BY path DESC"
 		} else {
@@ -833,22 +849,26 @@ func getThreadPosts(w http.ResponseWriter, r *http.Request) {
 			limit, _ := strconv.Atoi(limitString)
 
 			sqlString = sqlString + fmt.Sprintf(" LIMIT %d", limit)
-		}
-
-		if sinceString != "" {
-			since, _ := strconv.Atoi(sinceString)
-
-			sqlString = sqlString + fmt.Sprintf(" OFFSET %d", since)
 		}
 	}
 
 	if sortString == "parent_tree" {
-		sqlString = fmt.Sprintf("SELECT path FROM posts WHERE parent=0 AND thread=%d", threadId)
+		sqlString = fmt.Sprintf("SELECT path FROM posts r WHERE r.parent=0 AND r.thread=%d", threadId)
+
+		if sinceString != "" {
+			since, _ := strconv.Atoi(sinceString)
+
+			if desc == true {
+				sqlString = sqlString + fmt.Sprintf(" AND r.path[1] < (SELECT path[1] FROM posts WHERE id=%d)", since)
+			} else {
+				sqlString = sqlString + fmt.Sprintf(" AND r.path[1] > (SELECT path[1] FROM posts WHERE id=%d)", since)
+			}
+		}
 
 		if desc == true {
-			sqlString = sqlString + " ORDER BY path DESC"
+			sqlString = sqlString + " ORDER BY r.path DESC"
 		} else {
-			sqlString = sqlString + " ORDER BY path ASC"
+			sqlString = sqlString + " ORDER BY r.path ASC"
 		}
 
 		if limitString != "" {
@@ -857,19 +877,13 @@ func getThreadPosts(w http.ResponseWriter, r *http.Request) {
 			sqlString = sqlString + fmt.Sprintf(" LIMIT %d", limit)
 		}
 
-		if sinceString != "" {
-			since, _ := strconv.Atoi(sinceString)
-
-			sqlString = sqlString + fmt.Sprintf(" OFFSET %d", since)
-		}
-
 		wrapperString := "WITH sub AS ("
-		wrapperString = wrapperString + sqlString + ")" + " SELECT p.id, p.parent, p.author, p.message, p.isEdited, p.forum, p.thread, p.created FROM posts p JOIN sub ON sub.path <= p.path"
+		wrapperString = wrapperString + sqlString + ")" + " SELECT p.id, p.parent, p.author, p.message, p.isEdited, p.forum, p.thread, p.created FROM posts p JOIN sub ON sub.path[1] = p.path[1]"
 
 		if desc == true {
-			wrapperString = wrapperString + " ORDER BY p.path DESC"
+			wrapperString = wrapperString + " ORDER BY p.path[1] DESC, p.path"
 		} else {
-			wrapperString = wrapperString + " ORDER BY p.path ASC"
+			wrapperString = wrapperString + " ORDER BY p.path[1] ASC, p.path"
 		}
 
 		sqlString = wrapperString
@@ -877,7 +891,7 @@ func getThreadPosts(w http.ResponseWriter, r *http.Request) {
 		fmt.Println(sqlString)
 	}
 
-	var posts []Post
+	posts := make([]Post, 0)
 
 	//sql := fmt.Sprintf("SELECT id, parent, author, message, isEdited, forum, thread, created FROM posts WHERE thread=%d", threadId)
 
@@ -1025,7 +1039,11 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 
 	var returnedUser User
 	sqlGet := fmt.Sprintf("SELECT nickname, fullname, about, email FROM users WHERE nickname='%s'", nickname)
-	rowsGet, _ := db.Query(sqlGet)
+	rowsGet, err2 := db.Query(sqlGet)
+
+	if err2 != nil {
+		fmt.Println(err2)
+	}
 
 	for rowsGet.Next() {
 		rowsGet.Scan(&returnedUser.Nickname, &returnedUser.Fullname, &returnedUser.About, &returnedUser.Email)
