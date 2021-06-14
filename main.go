@@ -1243,6 +1243,8 @@ func threadVote(w http.ResponseWriter, r *http.Request) {
 
 	var voteGot Vote
 
+	fmt.Println(thread.ID)
+
 	sqlVote := fmt.Sprintf("SELECT id, username, voice FROM votes WHERE thread=%d AND username='%s'", thread.ID, vote.Nickname)
 
 	rowsVote, err2 := db.Query(sqlVote)
@@ -1251,23 +1253,14 @@ func threadVote(w http.ResponseWriter, r *http.Request) {
 	for rowsVote.Next() {
 		fmt.Println(err2)
 		rowsVote.Scan(&voteGot.Id, &voteGot.Nickname, &voteGot.Voice)
+		//fmt.Println(fmt.Sprintf("UPDATING VOTEGOT %s", voteGot.Nickname))
 	}
 
-	if vote.Voice == -voteGot.Voice && vote.Nickname == voteGot.Nickname {
-		sqlVote := fmt.Sprintf("UPDATE votes SET voice=%d WHERE id=%d", vote.Voice, voteGot.Id)
-		sqlUpdateTable := fmt.Sprintf("UPDATE threads SET votes=votes + %d WHERE id=%d", vote.Voice*2, thread.ID)
-		thread.Votes = thread.Votes + vote.Voice*2
-		db.Exec(sqlVote)
-		db.Exec(sqlUpdateTable)
-	}
-
-	if voteGot.Nickname == "" {
-		sqlVote := fmt.Sprintf("INSERT INTO votes (username, voice, thread) VALUES ('%s', %d, %d)", vote.Nickname, vote.Voice, thread.ID)
-		sqlUpdateTable := fmt.Sprintf("UPDATE threads SET votes=votes + %d WHERE id=%d", vote.Voice, thread.ID)
-		thread.Votes = thread.Votes + vote.Voice
-		rows, err := db.Query(sqlVote)
-
-		if err != nil {
+	if voteGot.Id == 0 {
+		sqlCheck := fmt.Sprintf("SELECT nickname FROM users WHERE nickname='%s'", vote.Nickname)
+		var checkString string
+		db.QueryRow(sqlCheck).Scan(&checkString)
+		if checkString == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
 			var Error ErrorMessage
@@ -1277,10 +1270,61 @@ func threadVote(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		db.Exec(sqlUpdateTable)
+		sqlVote := fmt.Sprintf("INSERT INTO votes (username, voice, thread) VALUES ('%s', %d, %d)", vote.Nickname, vote.Voice, thread.ID)
 
+		rows, err := db.Query(sqlVote)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			var Error ErrorMessage
+			Error.Message = "Cant find user"
+
+			json.NewEncoder(w).Encode(Error)
+			return
+		}
+		thread.Votes += vote.Voice
 		rows.Close()
+	} else {
+		if voteGot.Voice != vote.Voice {
+			sqlVote := fmt.Sprintf("UPDATE votes SET voice=%d WHERE id=%d", vote.Voice, voteGot.Id)
+			thread.Votes += 2 * vote.Voice
+
+			db.Exec(sqlVote)
+		}
 	}
+
+	/*
+		if vote.Voice == -voteGot.Voice && vote.Nickname == voteGot.Nickname {
+			fmt.Println("YA EST")
+			sqlVote := fmt.Sprintf("UPDATE votes SET voice=%d WHERE id=%d", vote.Voice, voteGot.Id)
+			thread.Votes = thread.Votes + 2*vote.Voice
+			sqlUpdateTable := fmt.Sprintf("UPDATE threads SET votes=%d WHERE id=%d", thread.Votes, thread.ID)
+			db.Exec(sqlVote)
+			db.Exec(sqlUpdateTable)
+		}
+
+		if voteGot.Nickname == "" {
+			sqlVote := fmt.Sprintf("INSERT INTO votes (username, voice, thread) VALUES ('%s', %d, %d)", vote.Nickname, vote.Voice, thread.ID)
+
+			rows, err := db.Query(sqlVote)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				var Error ErrorMessage
+				Error.Message = "Cant find user"
+
+				json.NewEncoder(w).Encode(Error)
+				return
+			}
+
+			thread.Votes = thread.Votes + vote.Voice
+			sqlUpdateTable := fmt.Sprintf("UPDATE threads SET votes=%d WHERE id=%d", thread.Votes, thread.ID)
+
+			db.Exec(sqlUpdateTable)
+
+			rows.Close()
+		}
+	*/
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
