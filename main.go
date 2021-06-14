@@ -70,10 +70,10 @@ type Post struct {
 }
 
 type PostFull struct {
-	Post   Post   `json:"post"`
-	Author User   `json:"author,omitempty"`
-	Thread Thread `json:"thread,omitempty"`
-	Forum  Forum  `json:"forum,omitempty"`
+	Post   Post    `json:"post"`
+	Author *User   `json:"author,omitempty"`
+	Thread *Thread `json:"thread,omitempty"`
+	Forum  *Forum  `json:"forum,omitempty"`
 }
 
 type PostUpdate struct {
@@ -282,8 +282,8 @@ func forumThreadCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sql2 := fmt.Sprintf("SELECT id, author, created, forum, message, slug, title, votes FROM threads WHERE id='%d'", insertId)
-	err = db.QueryRow(sql2).Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum, &thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
+	sql2 := fmt.Sprintf("SELECT id, author, created, forum, message, slug, title, votes FROM threads WHERE id=%d", insertId)
+	db.QueryRow(sql2).Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum, &thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
 
 	sql3 := fmt.Sprintf("INSERT INTO usersForums (username, forum) VALUES ('%s','%s')", thread.Author, slug)
 	db.Exec(sql3)
@@ -476,7 +476,20 @@ func getPostDetails(w http.ResponseWriter, r *http.Request) {
 
 	postId, _ := strconv.Atoi(slug)
 
+	queryParam := r.URL.Query()
+
+	relatedString := queryParam.Get("related")
+
 	var postFull PostFull
+
+	var user1 User
+	postFull.Author = &user1
+
+	var forum1 Forum
+	postFull.Forum = &forum1
+
+	var thread1 Thread
+	postFull.Thread = &thread1
 
 	sql := fmt.Sprintf("SELECT id, author, created, forum, isEdited, message, parent, thread FROM posts WHERE id = %d", postId)
 
@@ -496,6 +509,16 @@ func getPostDetails(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&postFull.Post.ID, &postFull.Post.Author, &postFull.Post.Created, &postFull.Post.Forum, &postFull.Post.IsEdited, &postFull.Post.Message, &postFull.Post.Parent, &postFull.Post.Thread)
 	}
 
+	if postFull.Post.ID == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		var Error ErrorMessage
+		Error.Message = "Cant find post"
+
+		json.NewEncoder(w).Encode(Error)
+		return
+	}
+
 	sql2 := fmt.Sprintf("SELECT nickname, fullname, about, email FROM users WHERE nickname = '%s'", postFull.Post.Author)
 
 	rows2, err := db.Query(sql2)
@@ -510,7 +533,7 @@ func getPostDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for rows2.Next() {
-		rows2.Scan(&postFull.Author.Nickname, &postFull.Author.Fullname, &postFull.Author.About, &postFull.Author.Email)
+		rows2.Scan(&user1.Nickname, &user1.Fullname, &user1.About, &user1.Email)
 	}
 
 	sql3 := fmt.Sprintf("SELECT id, title, author, forum, message, votes, slug, created FROM threads WHERE id = %d", postFull.Post.Thread)
@@ -527,7 +550,7 @@ func getPostDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for rows3.Next() {
-		rows3.Scan(&postFull.Thread.ID, &postFull.Thread.Title, &postFull.Thread.Author, &postFull.Thread.Forum, &postFull.Thread.Message, &postFull.Thread.Votes, &postFull.Thread.Slug, &postFull.Thread.Created)
+		rows3.Scan(&thread1.ID, &thread1.Title, &thread1.Author, &thread1.Forum, &thread1.Message, &thread1.Votes, &thread1.Slug, &thread1.Created)
 	}
 
 	sql4 := fmt.Sprintf("SELECT title, username, slug, posts, threads FROM forums WHERE slug = '%s'", postFull.Post.Forum)
@@ -545,7 +568,7 @@ func getPostDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for rows4.Next() {
-		rows4.Scan(&postFull.Thread.ID, &postFull.Thread.Title, &postFull.Thread.Author, &postFull.Thread.Forum, &postFull.Thread.Message, &postFull.Thread.Votes, &postFull.Thread.Slug, &postFull.Thread.Created)
+		rows4.Scan(&forum1.Title, &forum1.User, &forum1.Slug, &forum1.Posts, &forum1.Threads)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -553,6 +576,19 @@ func getPostDetails(w http.ResponseWriter, r *http.Request) {
 
 	var postSend PostFull
 	postSend.Post = postFull.Post
+	fmt.Println(relatedString)
+
+	if strings.Contains(relatedString, "user") {
+		postSend.Author = postFull.Author
+	}
+
+	if strings.Contains(relatedString, "thread") {
+		postSend.Thread = postFull.Thread
+	}
+
+	if strings.Contains(relatedString, "forum") {
+		postSend.Forum = postFull.Forum
+	}
 
 	json.NewEncoder(w).Encode(postSend)
 }
@@ -575,6 +611,45 @@ func setPost(w http.ResponseWriter, r *http.Request) {
 	var postUpdate PostUpdate
 	json.Unmarshal(reqBody, &postUpdate)
 
+	var post Post
+
+	sql2 := fmt.Sprintf("SELECT id, author, created, forum, isEdited, message, parent, thread FROM posts WHERE id=%d", postId)
+
+	rows, err := db.Query(sql2)
+	defer rows.Close()
+
+	for rows.Next() {
+		rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.IsEdited, &post.Message, &post.Parent, &post.Thread)
+	}
+
+	if post.ID == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		var Error ErrorMessage
+		Error.Message = "Cant find post"
+
+		json.NewEncoder(w).Encode(Error)
+		return
+	}
+
+	if postUpdate.Message == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(post)
+
+		rows.Close()
+		return
+	}
+
+	if postUpdate.Message == post.Message {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(post)
+
+		rows.Close()
+		return
+	}
+
 	sql := fmt.Sprintf("UPDATE posts set (message, isEdited) = ('%s', true) WHERE id = %d", postUpdate.Message, postId)
 
 	rowsToClose, err := db.Query(sql)
@@ -588,17 +663,8 @@ func setPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var post Post
-
-	sql2 := fmt.Sprintf("SELECT id, author, created, forum, isEdited, message, parent, thread FROM posts WHERE id=%d", postId)
-
-	rows, err := db.Query(sql2)
-	defer rows.Close()
-
-	for rows.Next() {
-		rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.IsEdited, &post.Message, &post.Parent, &post.Thread)
-	}
-
+	post.Message = postUpdate.Message
+	post.IsEdited = true
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(post)
@@ -638,7 +704,7 @@ func serviceClear(w http.ResponseWriter, r *http.Request) {
 func serviceStatus(w http.ResponseWriter, r *http.Request) {
 	var status Status
 
-	sql := fmt.Sprintf("SELECT COUNT(id) from users")
+	sql := fmt.Sprintf("SELECT COUNT(nickname) from users")
 	sql2 := fmt.Sprintf("SELECT COUNT(id) from threads")
 	sql3 := fmt.Sprintf("SELECT COUNT(id) from posts")
 	sql4 := fmt.Sprintf("SELECT COUNT(id) from forums")
@@ -692,7 +758,12 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if thread.ID == 0 {
-		http.Error(w, "Can't find thread", 404)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		var Error ErrorMessage
+		Error.Message = "Cant find thread"
+
+		json.NewEncoder(w).Encode(Error)
 		return
 	}
 
@@ -714,7 +785,23 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(sql)
 
 		if err != nil {
-			http.Error(w, "Exist", 409)
+			fmt.Println(err)
+			if strings.Contains(err.Error(), "insert or update") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				var Error ErrorMessage
+				Error.Message = "User not found"
+
+				json.NewEncoder(w).Encode(Error)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			var Error ErrorMessage
+			Error.Message = "Error with post"
+
+			json.NewEncoder(w).Encode(Error)
 			return
 		}
 
@@ -784,7 +871,12 @@ func detailsThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if thread.ID == 0 {
-		http.Error(w, "Can't find thread", 404)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		var Error ErrorMessage
+		Error.Message = "Cant find THREAD"
+
+		json.NewEncoder(w).Encode(Error)
 		return
 	}
 
@@ -817,10 +909,33 @@ func updateDetailsThread(w http.ResponseWriter, r *http.Request) {
 	var selectThreadSql string
 
 	if err != nil {
-		threadSql = fmt.Sprintf("UPDATE threads SET (title, message) = ('%s', '%s') WHERE slug='%s'", updateThread.Title, updateThread.Message, slug)
+		if updateThread.Message == "" && updateThread.Title == "" {
+			threadSql = ""
+		}
+		if updateThread.Message != "" && updateThread.Title == "" {
+			threadSql = fmt.Sprintf("UPDATE threads SET message = '%s' WHERE slug='%s'", updateThread.Message, slug)
+		}
+		if updateThread.Message == "" && updateThread.Title != "" {
+			threadSql = fmt.Sprintf("UPDATE threads SET title = '%s' WHERE slug='%s'", updateThread.Title, slug)
+		}
+		if updateThread.Message != "" && updateThread.Title != "" {
+			threadSql = fmt.Sprintf("UPDATE threads SET (title, message) = ('%s', '%s') WHERE slug='%s'", updateThread.Title, updateThread.Message, slug)
+		}
 		selectThreadSql = fmt.Sprintf("SELECT id, author, created, forum, message, slug, title, votes FROM threads WHERE slug='%s'", slug)
 	} else {
-		threadSql = fmt.Sprintf("UPDATE threads SET (title, message) = ('%s', '%s') WHERE id=%d", updateThread.Title, updateThread.Message, threadId)
+		if updateThread.Message == "" && updateThread.Title == "" {
+			threadSql = ""
+		}
+		if updateThread.Message != "" && updateThread.Title == "" {
+			threadSql = fmt.Sprintf("UPDATE threads SET message = '%s' WHERE id=%d", updateThread.Message, threadId)
+		}
+		if updateThread.Message == "" && updateThread.Title != "" {
+			threadSql = fmt.Sprintf("UPDATE threads SET title = '%s' WHERE id=%d", updateThread.Title, threadId)
+		}
+		if updateThread.Message != "" && updateThread.Title != "" {
+			threadSql = fmt.Sprintf("UPDATE threads SET (title, message) = ('%s', '%s') WHERE id=%d", updateThread.Title, updateThread.Message, threadId)
+		}
+
 		selectThreadSql = fmt.Sprintf("SELECT id, author, created, forum, message, slug, title, votes FROM threads WHERE id=%d", threadId)
 	}
 
@@ -830,7 +945,12 @@ func updateDetailsThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err2 != nil {
-		http.Error(w, "Can't find thread", 404)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		var Error ErrorMessage
+		Error.Message = "Cant find tHrEaD"
+
+		json.NewEncoder(w).Encode(Error)
 		return
 	}
 
@@ -842,7 +962,12 @@ func updateDetailsThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if thread.ID == 0 {
-		http.Error(w, "Can't find thread", 404)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		var Error ErrorMessage
+		Error.Message = "Cant find THREEAD"
+
+		json.NewEncoder(w).Encode(Error)
 		return
 	}
 
@@ -884,18 +1009,38 @@ func getThreadPosts(w http.ResponseWriter, r *http.Request) {
 		var threadIDGot int
 
 		sql := fmt.Sprintf("SELECT id FROM threads WHERE slug='%s'", slug)
-		rows, err1 := db.Query(sql)
-
-		if err1 != nil {
-			http.Error(w, "Can't find thread", 404)
-			return
-		}
+		rows, _ := db.Query(sql)
 
 		for rows.Next() {
 			rows.Scan(&threadIDGot)
 		}
 		threadId = threadIDGot
 		rows.Close()
+
+		if threadIDGot == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			var Error ErrorMessage
+			Error.Message = "Cant find thread"
+
+			json.NewEncoder(w).Encode(Error)
+			return
+		}
+	}
+
+	if err == nil {
+		sql2 := fmt.Sprintf("SELECT id FROM threads WHERE id=%d", threadId)
+		var threadCheckId int
+		db.QueryRow(sql2).Scan(&threadCheckId)
+		if threadCheckId == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			var Error ErrorMessage
+			Error.Message = "Cant find thread"
+
+			json.NewEncoder(w).Encode(Error)
+			return
+		}
 	}
 
 	var sqlString string
@@ -1008,7 +1153,12 @@ func getThreadPosts(w http.ResponseWriter, r *http.Request) {
 
 		rows.Scan(&post.ID, &post.Parent, &post.Author, &post.Message, &post.IsEdited, &post.Forum, &post.Thread, &post.Created)
 		if post.ID == 0 {
-			http.Error(w, "Can't find thread", 404)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			var Error ErrorMessage
+			Error.Message = "Cant find post"
+
+			json.NewEncoder(w).Encode(Error)
 			return
 		}
 
@@ -1045,28 +1195,50 @@ func threadVote(w http.ResponseWriter, r *http.Request) {
 		rows, err1 := db.Query(sql)
 
 		if err1 != nil {
-			http.Error(w, "Can't find thread", 404)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			var Error ErrorMessage
+			Error.Message = "Cant find thread"
+
+			json.NewEncoder(w).Encode(Error)
 			return
 		}
 
 		for rows.Next() {
 			rows.Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum, &thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
 		}
+
 		rows.Close()
+
+		if thread.ID == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			var Error ErrorMessage
+			Error.Message = "Cant find thread"
+
+			json.NewEncoder(w).Encode(Error)
+			return
+		}
+
 	} else {
 		sql := fmt.Sprintf("SELECT id, author, created, forum, message, slug, title, votes FROM threads WHERE id=%d", threadId)
 
-		rows, err1 := db.Query(sql)
-
-		if err1 != nil {
-			http.Error(w, "Can't find thread", 404)
-			return
-		}
+		rows, _ := db.Query(sql)
 
 		for rows.Next() {
 			rows.Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum, &thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
 		}
 		rows.Close()
+
+		if thread.ID == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			var Error ErrorMessage
+			Error.Message = "Cant find thread"
+
+			json.NewEncoder(w).Encode(Error)
+			return
+		}
 	}
 
 	var voteGot Vote
@@ -1083,7 +1255,7 @@ func threadVote(w http.ResponseWriter, r *http.Request) {
 
 	if vote.Voice == -voteGot.Voice && vote.Nickname == voteGot.Nickname {
 		sqlVote := fmt.Sprintf("UPDATE votes SET voice=%d WHERE id=%d", vote.Voice, voteGot.Id)
-		sqlUpdateTable := fmt.Sprintf("UPDATE threads SET votes=votes + %d", vote.Voice*2)
+		sqlUpdateTable := fmt.Sprintf("UPDATE threads SET votes=votes + %d WHERE id=%d", vote.Voice*2, threadId)
 		thread.Votes = thread.Votes + vote.Voice*2
 		db.Exec(sqlVote)
 		db.Exec(sqlUpdateTable)
@@ -1091,10 +1263,23 @@ func threadVote(w http.ResponseWriter, r *http.Request) {
 
 	if voteGot.Nickname == "" {
 		sqlVote := fmt.Sprintf("INSERT INTO votes (username, voice, thread) VALUES ('%s', %d, %d)", vote.Nickname, vote.Voice, thread.ID)
-		sqlUpdateTable := fmt.Sprintf("UPDATE threads SET votes=votes + %d", vote.Voice)
+		sqlUpdateTable := fmt.Sprintf("UPDATE threads SET votes=votes + %d WHERE id=%d", vote.Voice, threadId)
 		thread.Votes = thread.Votes + vote.Voice
-		db.Exec(sqlVote)
+		rows, err := db.Query(sqlVote)
+
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			var Error ErrorMessage
+			Error.Message = "Cant find user"
+
+			json.NewEncoder(w).Encode(Error)
+			return
+		}
+
 		db.Exec(sqlUpdateTable)
+
+		rows.Close()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1282,7 +1467,7 @@ func handleRequests() { // РОУТЫ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	myRouter.HandleFunc("/api/forum/{slug}/create", forumThreadCreate).Methods("POST")
 	myRouter.HandleFunc("/api/forum/{slug}/users", forumThreadUsers)
 	myRouter.HandleFunc("/api/forum/{slug}/threads", getForumThreads).Methods("GET")
-	myRouter.HandleFunc("/api/post/{id}/details", getPostDetails)
+	myRouter.HandleFunc("/api/post/{id}/details", getPostDetails).Methods("GET")
 	myRouter.HandleFunc("/api/post/{id}/details", setPost).Methods("POST")
 	myRouter.HandleFunc("/api/service/clear", serviceClear).Methods("POST")
 	myRouter.HandleFunc("/api/service/status", serviceStatus)
