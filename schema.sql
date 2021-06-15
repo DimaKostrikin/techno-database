@@ -11,7 +11,6 @@ DROP Table IF EXISTS usersForums CASCADE;
 
 DROP INDEX IF EXISTS indexUniqueEmail;
 DROP INDEX IF EXISTS indexUniqueNickname;
-DROP INDEX IF EXISTS indexUniqueNicknameLow;
 
 DROP INDEX IF EXISTS indexForumsUser;
 DROP INDEX IF EXISTS indexUniqueSlugForums;
@@ -45,10 +44,9 @@ CREATE UNLOGGED TABLE IF NOT EXISTS users (
 );
 
 
-CREATE UNIQUE INDEX IF NOT EXISTS indexUniqueEmail ON users(email);
-CREATE UNIQUE INDEX IF NOT EXISTS uniqueUpNickname ON users(UPPER(nickname));
+CREATE INDEX IF NOT EXISTS indexUniqueEmail ON users USING HASH (email);
+
 CREATE UNIQUE INDEX IF NOT EXISTS indexUniqueNickname ON users(nickname);
-CREATE UNIQUE INDEX IF NOT EXISTS indexUniqueNicknameLow ON users(LOWER(nickname collate "ucs_basic"));
 
 
 CREATE UNLOGGED TABLE IF NOT EXISTS forums (
@@ -62,13 +60,13 @@ CREATE UNLOGGED TABLE IF NOT EXISTS forums (
 
 
 CREATE INDEX IF NOT EXISTS indexForumsUser ON forums(username);
-CREATE UNIQUE INDEX IF NOT EXISTS indexUniqueSlugForums ON forums(slug);
+CREATE INDEX IF NOT EXISTS indexUniqueSlugForums ON forums USING HASH (slug);
 
 
 CREATE UNLOGGED TABLE IF NOT EXISTS threads (
   id        SERIAL                      NOT NULL PRIMARY KEY,
   author    CITEXT                      NOT NULL REFERENCES users(nickname),
-  created   TIMESTAMP WITH TIME ZONE    DEFAULT current_timestamp,
+  created   TIMESTAMP WITH TIME ZONE    DEFAULT now(),
   forum     CITEXT                      NOT NULL REFERENCES forums(slug),
   message   TEXT                        NOT NULL,
   slug      CITEXT                      UNIQUE,
@@ -76,16 +74,13 @@ CREATE UNLOGGED TABLE IF NOT EXISTS threads (
   votes     INTEGER                     DEFAULT 0
 );
 
-
-CREATE INDEX IF NOT EXISTS indexThreadUser ON threads(author);
-CREATE INDEX IF NOT EXISTS indexThreadForum ON threads(forum);
-CREATE UNIQUE INDEX IF NOT EXISTS indexUniqueSlugThread ON threads(slug);
-
+CREATE INDEX IF NOT EXISTS indexUniqueSlugThread ON threads USING HASH(slug);
+CREATE INDEX forumCreatedThreads on threads (forum, created);
 
 CREATE UNLOGGED TABLE IF NOT EXISTS posts (
   id        BIGSERIAL                   NOT NULL PRIMARY KEY,
   author    CITEXT                      NOT NULL REFERENCES users(nickname),
-  created   TIMESTAMP WITH TIME ZONE    DEFAULT current_timestamp,
+  created   TIMESTAMP WITH TIME ZONE    DEFAULT now(),
   forum     VARCHAR,
   isEdited  BOOLEAN                     DEFAULT FALSE,
   message   TEXT                        NOT NULL,
@@ -125,10 +120,6 @@ CREATE TRIGGER set_post_path
 EXECUTE PROCEDURE set_post_path();
 
 
-CREATE INDEX IF NOT EXISTS indexPostAuthor ON posts(author);
-CREATE INDEX IF NOT EXISTS indexPostForum ON posts(forum);
-CREATE INDEX IF NOT EXISTS indexPostThread ON posts(thread);
-CREATE INDEX IF NOT EXISTS indexPostCreated ON posts(created);
 CREATE INDEX IF NOT EXISTS indexPostPath ON posts((path[1]));
 CREATE INDEX IF NOT EXISTS indexPostThreadCreateId ON posts(thread, created, id);
 CREATE INDEX IF NOT EXISTS indexPostParentThreadId ON posts(parent, thread, id);
@@ -144,58 +135,14 @@ CREATE UNLOGGED TABLE IF NOT EXISTS votes (
   UNIQUE(username, thread)
 );
 
+create index votesThreadNickname on votes (thread, username);
+
 
 CREATE UNLOGGED TABLE IF NOT EXISTS usersForums (
   username         CITEXT     REFERENCES users(nickname) NOT NULL,
   forum            CITEXT     REFERENCES forums(slug) NOT NULL,
   UNIQUE (forum, username)
 );
-
-CREATE OR REPLACE FUNCTION insert_thread_votes()
-    RETURNS TRIGGER AS
-$insert_thread_votes$
-BEGIN
-    IF new.voice > 0 THEN
-        UPDATE threads SET votes = (votes + 1)
-        WHERE id = new.thread;
-    ELSE
-        UPDATE threads SET votes = (votes - 1)
-        WHERE id = new.thread;
-    END IF;
-    RETURN new;
-END;
-$insert_thread_votes$ language plpgsql;
-
-CREATE TRIGGER insert_thread_votes
-    BEFORE INSERT
-    ON votes
-    FOR EACH ROW
-EXECUTE PROCEDURE insert_thread_votes();
-
-
-
-CREATE OR REPLACE FUNCTION update_thread_votes()
-    RETURNS TRIGGER AS
-$update_thread_votes$
-BEGIN
-    IF new.voice > 0 THEN
-        UPDATE threads
-        SET votes = (votes + 2)
-        WHERE threads.id = new.thread;
-    else
-        UPDATE threads
-        SET votes = (votes - 2)
-        WHERE threads.id = new.thread;
-    END IF;
-    RETURN new;
-END;
-$update_thread_votes$ LANGUAGE plpgsql;
-
-CREATE TRIGGER update_thread_votes
-    BEFORE UPDATE
-    ON votes
-    FOR EACH ROW
-EXECUTE PROCEDURE update_thread_votes();
 
 
 CREATE INDEX IF NOT EXISTS indexUsersForumsUser ON usersForums (username);
