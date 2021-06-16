@@ -284,8 +284,8 @@ func forumThreadCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sql2 := fmt.Sprintf("SELECT id, author, created, forum, message, title, votes, slug FROM threads WHERE id=%d", insertId)
-	db.QueryRow(sql2).Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum, &thread.Message, &thread.Title, &thread.Votes, &thread.Slug)
+	thread.ID = int32(insertId)
+	thread.Forum = forumName
 
 	sql3 := fmt.Sprintf("INSERT INTO usersForums (username, forum) VALUES ('%s','%s')", thread.Author, slug)
 	db.Exec(sql3)
@@ -730,16 +730,16 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	var threadSql string
 
 	if err != nil {
-		threadSql = fmt.Sprintf("SELECT id, author, created, forum, message, slug, title, votes FROM threads WHERE slug='%s'", slug)
+		threadSql = fmt.Sprintf("SELECT id, forum FROM threads WHERE slug='%s'", slug)
 	} else {
-		threadSql = fmt.Sprintf("SELECT id, author, created, forum, message, slug, title, votes FROM threads WHERE id=%d", threadId)
+		threadSql = fmt.Sprintf("SELECT id, forum FROM threads WHERE id=%d", threadId)
 	}
 
 	rowsThread, _ := db.Query(threadSql)
 	defer rowsThread.Close()
 
 	for rowsThread.Next() {
-		rowsThread.Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum, &thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
+		rowsThread.Scan(&thread.ID, &thread.Forum)
 	}
 
 	if thread.ID == 0 {
@@ -757,9 +757,8 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	var posts []Post
 	json.Unmarshal(reqBody, &posts)
 
-	var got []int32
 	for i := range posts {
-		var id int32
+		var id int64
 
 		var strFmt strfmt.DateTime
 		if posts[i].Created == strFmt {
@@ -793,34 +792,20 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(&id)
 		}
 
-		got = append(got, id)
+		posts[i].ID = id
+		posts[i].Thread = thread.ID
+		posts[i].Forum = thread.Forum
+
 		sql3 := fmt.Sprintf("INSERT INTO usersForums (username, forum) VALUES ('%s','%s')", posts[i].Author, thread.Forum)
 		db.Exec(sql3)
 		rows.Close()
 	}
 
-	gotPosts := make([]Post, 0)
-	for i := range got {
-		var post Post
-
-		sql = fmt.Sprintf("SELECT id, parent, author, message, isEdited, forum, thread, created FROM posts WHERE id=%d", got[i])
-
-		rows, _ := db.Query(sql)
-
-		for rows.Next() {
-			rows.Scan(&post.ID, &post.Parent, &post.Author, &post.Message, &post.IsEdited, &post.Forum, &post.Thread, &post.Created)
-		}
-
-		gotPosts = append(gotPosts, post)
-
-		rows.Close() // Мб смысла нет бтв да да
-	}
-
-	db.Exec(fmt.Sprintf("UPDATE forums SET posts = posts + %d WHERE slug='%s'", len(gotPosts), thread.Forum))
+	db.Exec(fmt.Sprintf("UPDATE forums SET posts = posts + %d WHERE slug='%s'", len(posts), thread.Forum))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(gotPosts)
+	json.NewEncoder(w).Encode(posts)
 }
 
 /*
