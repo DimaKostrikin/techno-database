@@ -20,6 +20,11 @@ RUN /etc/init.d/postgresql start &&\
     createdb -O yourname postgre &&\
     /etc/init.d/postgresql stop
 
+RUN echo "listen_addresses='*'" >> /etc/postgresql/$PGVER/main/postgresql.conf
+RUN echo "synchronous_commit = off" >> /etc/postgresql/$PGVER/main/postgresql.conf
+RUN echo "shared_buffers = 256MB" >> /etc/postgresql/$PGVER/main/postgresql.conf
+RUN echo "autovacuum = off" >> /etc/postgresql/$PGVER/main/postgresql.conf
+
 EXPOSE 5432
 
 VOLUME  ["/etc/postgresql", "/var/log/postgresql", "/var/lib/postgresql"]
