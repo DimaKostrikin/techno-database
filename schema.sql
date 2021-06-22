@@ -1,4 +1,4 @@
-CREATE EXTENSION citext;
+CREATE EXTENSION IF NOT EXIST citext;
 
 
 DROP Table IF EXISTS users CASCADE;
@@ -9,31 +9,20 @@ DROP Table IF EXISTS votes CASCADE;
 DROP Table IF EXISTS usersForums CASCADE;
 
 
-DROP INDEX IF EXISTS indexUniqueEmail;
-DROP INDEX IF EXISTS indexUniqueNickname;
+DROP INDEX IF EXISTS index_unique_email;
+DROP INDEX IF EXISTS index_unique_nickname;
+DROP INDEX IF EXISTS index_unique_slug_forums;
+DROP INDEX IF EXISTS index_unique_slug_thread;
 
-DROP INDEX IF EXISTS indexForumsUser;
-DROP INDEX IF EXISTS indexUniqueSlugForums;
+DROP INDEX IF EXISTS forum_created_threads;
+DROP INDEX IF EXISTS index_post_path;
+DROP INDEX IF EXISTS index_post_thread_create_id;
+DROP INDEX IF EXISTS index_post_id_thread;
 
-DROP INDEX IF EXISTS indexThreadUser;
-DROP INDEX IF EXISTS indexThreadForum;
-DROP INDEX IF EXISTS indexUniqueSlugThread;
-
-DROP INDEX IF EXISTS indexPostAuthor;
-DROP INDEX IF EXISTS indexPostForum;
-DROP INDEX IF EXISTS indexPostThread;
-DROP INDEX IF EXISTS indexPostCreated;
-DROP INDEX IF EXISTS indexPostThreadCreateId;
-DROP INDEX IF EXISTS indexPostParentThreadId;
-DROP INDEX IF EXISTS indexPostIdThread;
-DROP INDEX IF EXISTS indexPostThreadPath;
-DROP INDEX IF EXISTS indexPostPath;
-
-DROP INDEX IF EXISTS indexUsersForumsUser;
-DROP INDEX IF EXISTS indexUsersForumsForum;
-DROP INDEX IF EXISTS indexUsersForumsUserLow;
-DROP TRIGGER IF EXISTS insert_thread_votes ON votes;
-DROP TRIGGER IF EXISTS update_thread_votes ON votes;
+DROP INDEX IF EXISTS index_post_thread_path;
+DROP INDEX IF EXISTS votes_thread_nickname;
+DROP INDEX IF EXISTS index_users_forums_user;
+DROP INDEX IF EXISTS index_users_forums_forum;
 
 
 CREATE UNLOGGED TABLE IF NOT EXISTS users (
@@ -44,9 +33,9 @@ CREATE UNLOGGED TABLE IF NOT EXISTS users (
 );
 
 
-CREATE INDEX IF NOT EXISTS indexUniqueEmail ON users USING HASH (email);
+CREATE INDEX index_unique_email ON users USING HASH (email);
 
-CREATE UNIQUE INDEX IF NOT EXISTS indexUniqueNickname ON users(nickname);
+CREATE INDEX index_unique_nickname ON users (nickname);
 
 
 CREATE UNLOGGED TABLE IF NOT EXISTS forums (
@@ -58,9 +47,8 @@ CREATE UNLOGGED TABLE IF NOT EXISTS forums (
   threads   INTEGER     DEFAULT 0
 );
 
-
-CREATE INDEX IF NOT EXISTS indexForumsUser ON forums(username);
-CREATE INDEX IF NOT EXISTS indexUniqueSlugForums ON forums USING HASH (slug);
+CREATE INDEX index_unique_slug_forums ON forums USING HASH (slug);
+CREATE INDEX index_forum_user ON forums(username)
 
 
 CREATE UNLOGGED TABLE IF NOT EXISTS threads (
@@ -74,20 +62,28 @@ CREATE UNLOGGED TABLE IF NOT EXISTS threads (
   votes     INTEGER                     DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS indexUniqueSlugThread ON threads USING HASH(slug);
-CREATE INDEX forumCreatedThreads on threads (forum, created);
+CREATE INDEX index_thread_user ON threads(author)
+CREATE INDEX index_unique_slug_thread ON threads USING HASH(slug);
+CREATE INDEX forum_created_threads on threads (forum, created);
 
 CREATE UNLOGGED TABLE IF NOT EXISTS posts (
   id        BIGSERIAL                   NOT NULL PRIMARY KEY,
-  author    CITEXT                      NOT NULL REFERENCES users(nickname),
+  author    CITEXT                      NOT NULL REFERENCES users(nickname) ON DELETE CASCADE,
   created   TIMESTAMP WITH TIME ZONE    DEFAULT now(),
-  forum     VARCHAR,
+  forum     CITEXT,                     
   isEdited  BOOLEAN                     DEFAULT FALSE,
   message   TEXT                        NOT NULL,
   parent    INTEGER                     DEFAULT 0,
-  thread    INTEGER                     NOT NULL REFERENCES threads(id),
+  thread    INTEGER                     NOT NULL,
   path      BIGINT[]
 );
+
+CREATE INDEX index_post_author ON posts(author)
+CREATE INDEX index_post_forum ON posts(forum)
+CREATE INDEX index_post_path ON posts((path[1]));
+CREATE INDEX index_post_thread_create_id ON posts(thread, created, id);
+CREATE INDEX index_post_id_thread ON posts(thread, id);
+CREATE INDEX index_post_thread_path ON posts(thread, path);
 
 CREATE OR REPLACE FUNCTION set_post_path()
     RETURNS TRIGGER AS
@@ -120,13 +116,6 @@ CREATE TRIGGER set_post_path
 EXECUTE PROCEDURE set_post_path();
 
 
-CREATE INDEX IF NOT EXISTS indexPostPath ON posts((path[1]));
-CREATE INDEX IF NOT EXISTS indexPostThreadCreateId ON posts(thread, created, id);
-CREATE INDEX IF NOT EXISTS indexPostParentThreadId ON posts(parent, thread, id);
-CREATE INDEX IF NOT EXISTS indexPostIdThread ON posts(id, thread);
-CREATE INDEX IF NOT EXISTS indexPostThreadPath ON posts(thread, path);
-
-
 CREATE UNLOGGED TABLE IF NOT EXISTS votes (
   id        SERIAL      NOT NULL PRIMARY KEY,
   username  CITEXT      NOT NULL REFERENCES users(nickname),
@@ -135,7 +124,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS votes (
   UNIQUE(username, thread)
 );
 
-create index votesThreadNickname on votes (thread, username);
+create index votes_thread_nickname on votes (thread, username);
 
 
 CREATE UNLOGGED TABLE IF NOT EXISTS usersForums (
@@ -145,5 +134,5 @@ CREATE UNLOGGED TABLE IF NOT EXISTS usersForums (
 );
 
 
-CREATE INDEX IF NOT EXISTS indexUsersForumsUser ON usersForums (username);
-CREATE INDEX IF NOT EXISTS indexUsersForumsForum ON usersForums (forum);
+CREATE INDEX index_users_forums_user ON usersForums (username);
+CREATE INDEX index_users_forums_forum ON usersForums USING HASH (forum);
