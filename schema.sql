@@ -1,4 +1,4 @@
-CREATE EXTENSION IF NOT EXIST citext;
+CREATE EXTENSION IF NOT EXISTS citext;
 
 
 DROP Table IF EXISTS users CASCADE;
@@ -48,7 +48,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS forums (
 );
 
 CREATE INDEX index_unique_slug_forums ON forums USING HASH (slug);
-CREATE INDEX index_forum_user ON forums(username)
+CREATE INDEX index_forum_user ON forums(username);
 
 
 CREATE UNLOGGED TABLE IF NOT EXISTS threads (
@@ -62,7 +62,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS threads (
   votes     INTEGER                     DEFAULT 0
 );
 
-CREATE INDEX index_thread_user ON threads(author)
+CREATE INDEX index_thread_user ON threads(author);
 CREATE INDEX index_unique_slug_thread ON threads USING HASH(slug);
 CREATE INDEX forum_created_threads on threads (forum, created);
 
@@ -78,8 +78,8 @@ CREATE UNLOGGED TABLE IF NOT EXISTS posts (
   path      BIGINT[]
 );
 
-CREATE INDEX index_post_author ON posts(author)
-CREATE INDEX index_post_forum ON posts(forum)
+CREATE INDEX index_post_author ON posts(author);
+CREATE INDEX index_post_forum ON posts(forum);
 CREATE INDEX index_post_path ON posts((path[1]));
 CREATE INDEX index_post_thread_create_id ON posts(thread, created, id);
 CREATE INDEX index_post_id_thread ON posts(thread, id);

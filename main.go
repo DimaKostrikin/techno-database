@@ -1301,5 +1301,6 @@ func handleRequests() { // РОУТЫ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 }
 
 func main() {
+	db.Config().ConnConfig.PreferSimpleProtocol = true
 	handleRequests()
 }
