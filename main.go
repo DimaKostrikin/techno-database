@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	_ "github.com/lib/pq"
 )
@@ -21,6 +22,11 @@ import (
 var ctx = context.Background()
 
 var db, err = pgxpool.Connect(ctx, "postgres://yourname:yourpassword@localhost:5432/postgre")
+
+var getUsersLimit = `SELECT nickname, fullname, email, about FROM usersForums JOIN users ON (usersForums.username = users.nickname) WHERE usersForums.forum = $1 ORDER BY users.nickname COLLATE "ucs_basic" ASC LIMIT $2`
+var getUsersLimitDesc = `SELECT nickname, fullname, email, about FROM usersForums JOIN users ON (usersForums.username = users.nickname) WHERE usersForums.forum = $1 ORDER BY users.nickname COLLATE "ucs_basic" DESC LIMIT $2`
+var getUsersLimitSince = `SELECT nickname, fullname, email, about FROM usersForums JOIN users ON (usersForums.username = users.nickname) WHERE usersForums.forum = $1 AND users.nickname > $2 COLLATE "ucs_basic" ORDER BY users.nickname COLLATE "ucs_basic" ASC LIMIT $3`
+var getUsersLimitSinceDesc = `SELECT nickname, fullname, email, about FROM usersForums JOIN users ON (usersForums.username = users.nickname) WHERE usersForums.forum = $1 AND users.nickname < $2 COLLATE "ucs_basic" ORDER BY users.nickname COLLATE "ucs_basic" DESC LIMIT $3`
 
 type Forum struct {
 	Title   string `json:"title"`
@@ -102,15 +108,16 @@ type ErrorMessage struct {
 */
 
 func createForum(w http.ResponseWriter, r *http.Request) {
+	tx, _ := db.Begin(ctx)
+	defer tx.Commit(ctx)
+
 	reqBody, _ := ioutil.ReadAll(r.Body)
 
 	var forum Forum
 	json.Unmarshal(reqBody, &forum)
 
-	sqlStringUserName := fmt.Sprintf("SELECT nickname FROM users WHERE nickname='%s'", forum.User)
-
 	var userName string
-	db.QueryRow(ctx, sqlStringUserName).Scan(&userName)
+	tx.QueryRow(ctx, "SELECT nickname FROM users WHERE nickname=$1", forum.User).Scan(&userName)
 
 	if userName == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -122,9 +129,7 @@ func createForum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sqlString := fmt.Sprintf("INSERT INTO forums (username, slug, title) VALUES ('%s','%s','%s')", userName, forum.Slug, forum.Title)
-	//sqlString := "INSERT INTO forums (username, slug, title) VALUES ('abc','abcde','abc')"
-	_, err := db.Exec(ctx, sqlString)
+	_, err := tx.Exec(ctx, "INSERT INTO forums (username, slug, title) VALUES ($1,$2,$3)", userName, forum.Slug, forum.Title)
 	forum.User = userName
 
 	if err != nil {
@@ -170,10 +175,8 @@ func detailsForum(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	slug := vars["slug"]
 
-	sql := fmt.Sprintf("SELECT title, username as user, slug, posts, threads FROM forums WHERE slug='%s'", slug)
-
 	var forum Forum
-	db.QueryRow(ctx, sql).Scan(&forum.Title, &forum.User, &forum.Slug, &forum.Posts, &forum.Threads)
+	db.QueryRow(ctx, "SELECT title, username as user, slug, posts, threads FROM forums WHERE slug=$1", slug).Scan(&forum.Title, &forum.User, &forum.Slug, &forum.Posts, &forum.Threads)
 
 	if forum.Slug == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -212,13 +215,10 @@ func forumThreadCreate(w http.ResponseWriter, r *http.Request) {
 		thread.Created = timeNowStr
 	}
 
-	sqlForumName := fmt.Sprintf("SELECT slug FROM forums WHERE slug='%s'", slug)
-	rowsForumName, _ := db.Query(ctx, sqlForumName)
-	defer rowsForumName.Close()
 	var forumName string
-	for rowsForumName.Next() {
-		rowsForumName.Scan(&forumName)
-	}
+
+	db.QueryRow(ctx, "SELECT slug FROM forums WHERE slug=$1", slug).Scan(&forumName)
+
 	if forumName == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -229,10 +229,8 @@ func forumThreadCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sql := fmt.Sprintf("INSERT INTO threads (author, forum, message, title, slug, created) VALUES ('%s', '%s', '%s', '%s', NULLIF('%s', ''), '%s') RETURNING id", thread.Author, forumName, thread.Message, thread.Title, thread.Slug, thread.Created)
-
 	insertId := 0
-	err := db.QueryRow(ctx, sql).Scan(&insertId)
+	err := db.QueryRow(ctx, "INSERT INTO threads (author, forum, message, title, slug, created) VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6) RETURNING id", thread.Author, forumName, thread.Message, thread.Title, thread.Slug, thread.Created).Scan(&insertId)
 
 	if err != nil {
 		if strings.Contains(err.Error(), "violates foreign key") {
@@ -246,10 +244,8 @@ func forumThreadCreate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if strings.Contains(err.Error(), "duplicate key value") {
-			sqlOut := fmt.Sprintf("SELECT id, author, forum, message, title, slug, created FROM threads WHERE slug='%s'", thread.Slug)
-
 			var threadOut Thread
-			db.QueryRow(ctx, sqlOut).Scan(&threadOut.ID, &threadOut.Author, &threadOut.Forum, &threadOut.Message, &threadOut.Title, &threadOut.Slug, &threadOut.Created)
+			db.QueryRow(ctx, "SELECT id, author, forum, message, title, slug, created FROM threads WHERE slug=$1", thread.Slug).Scan(&threadOut.ID, &threadOut.Author, &threadOut.Forum, &threadOut.Message, &threadOut.Title, &threadOut.Slug, &threadOut.Created)
 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
@@ -261,11 +257,9 @@ func forumThreadCreate(w http.ResponseWriter, r *http.Request) {
 	thread.ID = int32(insertId)
 	thread.Forum = forumName
 
-	sql3 := fmt.Sprintf("INSERT INTO usersForums (username, forum) VALUES ('%s','%s')", thread.Author, slug)
-	db.Exec(ctx, sql3)
+	db.Exec(ctx, "INSERT INTO usersForums (username, forum) VALUES ($1, $2)", thread.Author, slug)
 
-	sql4 := fmt.Sprintf("UPDATE forums SET threads = threads + 1 WHERE slug = '%s'", slug)
-	db.Exec(ctx, sql4)
+	db.Exec(ctx, "UPDATE forums SET threads = threads + 1 WHERE slug = $1", slug)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -286,9 +280,8 @@ func forumThreadUsers(w http.ResponseWriter, r *http.Request) {
 
 	queryParam := r.URL.Query()
 
-	sqlCheck := fmt.Sprintf("SELECT id FROM forums WHERE slug='%s'", slug)
 	var checkId int
-	db.QueryRow(ctx, sqlCheck).Scan(&checkId)
+	db.QueryRow(ctx, "SELECT id FROM forums WHERE slug=$1", slug).Scan(&checkId)
 	if checkId == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -303,36 +296,38 @@ func forumThreadUsers(w http.ResponseWriter, r *http.Request) {
 	sinceString := queryParam.Get("since")
 	descString := queryParam.Get("desc")
 
+	limit := 1
+
+	if limitString != "" {
+		limit, _ = strconv.Atoi(limitString)
+	}
+
 	var desc bool = false
 
 	if descString != "" {
 		desc, _ = strconv.ParseBool(descString)
 	}
 
-	sql := fmt.Sprintf("SELECT nickname, fullname, email, about FROM usersForums JOIN users ON (usersForums.username = users.nickname) WHERE usersForums.forum = '%s'", slug)
+	var rows pgx.Rows
+	var err1 error
 
-	if sinceString != "" {
+	if sinceString == "" {
 		if desc == true {
-			sql = sql + fmt.Sprintf(`AND nickname < '%s' COLLATE "ucs_basic"`, sinceString)
+			rows, err1 = db.Query(ctx, getUsersLimitDesc, slug, limit)
 		} else {
-			sql = sql + fmt.Sprintf(`AND nickname > '%s' COLLATE "ucs_basic"`, sinceString)
+			rows, err1 = db.Query(ctx, getUsersLimit, slug, limit)
+		}
+	} else {
+		if desc == true {
+			rows, err1 = db.Query(ctx, getUsersLimitSinceDesc, slug, sinceString, limit)
+		} else {
+			rows, err1 = db.Query(ctx, getUsersLimitSince, slug, sinceString, limit)
 		}
 	}
 
-	if desc == true {
-		sql = sql + ` ORDER BY LOWER(nickname) COLLATE "ucs_basic" DESC`
-	} else {
-		sql = sql + ` ORDER BY LOWER(nickname) COLLATE "ucs_basic" ASC`
+	if err1 != nil {
+		fmt.Println(err1)
 	}
-
-	if limitString != "" {
-		limit, _ := strconv.Atoi(limitString)
-
-		sql = sql + fmt.Sprintf(" LIMIT %d", limit)
-	}
-
-	rows, _ := db.Query(ctx, sql)
-	defer rows.Close()
 
 	got := make([]User, 0)
 	for rows.Next() {
@@ -343,6 +338,7 @@ func forumThreadUsers(w http.ResponseWriter, r *http.Request) {
 		got = append(got, *user)
 	}
 
+	rows.Close()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(got)
@@ -369,8 +365,7 @@ func getForumThreads(w http.ResponseWriter, r *http.Request) {
 
 	descString := queryParam.Get("desc")
 
-	sqlCheck := fmt.Sprintf("SELECT id FROM forums WHERE slug = '%s'", slug)
-	rowsCheck, _ := db.Query(ctx, sqlCheck)
+	rowsCheck, _ := db.Query(ctx, "SELECT id FROM forums WHERE slug = $1", slug)
 	defer rowsCheck.Close()
 	var checkId int
 	for rowsCheck.Next() {
@@ -477,35 +472,36 @@ func getPostDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sql2 := fmt.Sprintf("SELECT nickname, fullname, about, email FROM users WHERE nickname = '%s'", postFull.Post.Author)
-
-	db.QueryRow(ctx, sql2).Scan(&user1.Nickname, &user1.Fullname, &user1.About, &user1.Email)
-
-	sql3 := fmt.Sprintf("SELECT id, title, author, forum, message, votes, created, slug FROM threads WHERE id = %d", postFull.Post.Thread)
-
-	db.QueryRow(ctx, sql3).Scan(&thread1.ID, &thread1.Title, &thread1.Author, &thread1.Forum, &thread1.Message, &thread1.Votes, &thread1.Created, &thread1.Slug)
-
-	sql4 := fmt.Sprintf("SELECT title, username, slug, posts, threads FROM forums WHERE slug = '%s'", postFull.Post.Forum)
-
-	db.QueryRow(ctx, sql4).Scan(&forum1.Title, &forum1.User, &forum1.Slug, &forum1.Posts, &forum1.Threads)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
 	var postSend PostFull
-	postSend.Post = postFull.Post
 
 	if strings.Contains(relatedString, "user") {
+		sql2 := fmt.Sprintf("SELECT nickname, fullname, about, email FROM users WHERE nickname = '%s'", postFull.Post.Author)
+
+		db.QueryRow(ctx, sql2).Scan(&user1.Nickname, &user1.Fullname, &user1.About, &user1.Email)
+
 		postSend.Author = postFull.Author
 	}
 
 	if strings.Contains(relatedString, "thread") {
+		sql3 := fmt.Sprintf("SELECT id, title, author, forum, message, votes, created, slug FROM threads WHERE id = %d", postFull.Post.Thread)
+
+		db.QueryRow(ctx, sql3).Scan(&thread1.ID, &thread1.Title, &thread1.Author, &thread1.Forum, &thread1.Message, &thread1.Votes, &thread1.Created, &thread1.Slug)
+
 		postSend.Thread = postFull.Thread
 	}
 
 	if strings.Contains(relatedString, "forum") {
 		postSend.Forum = postFull.Forum
+
+		sql4 := fmt.Sprintf("SELECT title, username, slug, posts, threads FROM forums WHERE slug = '%s'", postFull.Post.Forum)
+
+		db.QueryRow(ctx, sql4).Scan(&forum1.Title, &forum1.User, &forum1.Slug, &forum1.Posts, &forum1.Threads)
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	postSend.Post = postFull.Post
 
 	json.NewEncoder(w).Encode(postSend)
 }
@@ -532,7 +528,7 @@ func setPost(w http.ResponseWriter, r *http.Request) {
 
 	sql2 := fmt.Sprintf("SELECT id, author, created, forum, isEdited, message, parent, thread FROM posts WHERE id=%d", postId)
 
-	rows, err := db.Query(ctx, sql2)
+	rows, _ := db.Query(ctx, sql2)
 	defer rows.Close()
 
 	for rows.Next() {
@@ -569,12 +565,7 @@ func setPost(w http.ResponseWriter, r *http.Request) {
 
 	sql := fmt.Sprintf("UPDATE posts set (message, isEdited) = ('%s', true) WHERE id = %d", postUpdate.Message, postId)
 
-	_, err = db.Exec(ctx, sql)
-
-	if err != nil {
-		http.Error(w, "Can't find post", 404)
-		return
-	}
+	db.Exec(ctx, sql)
 
 	post.Message = postUpdate.Message
 	post.IsEdited = true
@@ -594,12 +585,7 @@ func setPost(w http.ResponseWriter, r *http.Request) {
 func serviceClear(w http.ResponseWriter, r *http.Request) {
 	sql := fmt.Sprintf("TRUNCATE users CASCADE")
 
-	_, err := db.Exec(ctx, sql)
-
-	if err != nil {
-		http.Error(w, "Some error", 404)
-		return
-	}
+	db.Exec(ctx, sql)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -1166,18 +1152,9 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var returnedUser User
-	sqlGet := fmt.Sprintf("SELECT nickname, fullname, about, email FROM users WHERE nickname='%s'", nickname)
-	rowsGet, _ := db.Query(ctx, sqlGet)
-	defer rowsGet.Close()
-
-	for rowsGet.Next() {
-		rowsGet.Scan(&returnedUser.Nickname, &returnedUser.Fullname, &returnedUser.About, &returnedUser.Email)
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(returnedUser)
+	json.NewEncoder(w).Encode(userGot)
 }
 
 /*
@@ -1300,6 +1277,7 @@ func handleRequests() { // РОУТЫ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 }
 
 func main() {
-	db.Config().ConnConfig.PreferSimpleProtocol = true
+	//db.Config().ConnConfig.PreferSimpleProtocol = true
+
 	handleRequests()
 }
