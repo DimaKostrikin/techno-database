@@ -1128,6 +1128,7 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 
 	var userGot User
 	json.Unmarshal(reqBody, &userGot)
+	userGot.Nickname = nickname
 
 	sql := fmt.Sprintf("INSERT INTO users (nickname, fullname, about, email) VALUES ('%s', '%s', '%s', '%s')", nickname, userGot.Fullname, userGot.About, userGot.Email)
 
