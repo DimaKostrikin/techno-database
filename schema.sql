@@ -48,7 +48,6 @@ CREATE UNLOGGED TABLE IF NOT EXISTS forums (
 );
 
 CREATE INDEX index_unique_slug_forums ON forums USING HASH (slug);
-CREATE INDEX index_forum_user ON forums(username);
 
 
 CREATE UNLOGGED TABLE IF NOT EXISTS threads (
@@ -62,7 +61,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS threads (
   votes     INTEGER                     DEFAULT 0
 );
 
-CREATE INDEX index_thread_user ON threads(author);
+
 CREATE INDEX index_unique_slug_thread ON threads USING HASH(slug);
 CREATE INDEX forum_created_threads on threads (forum, created);
 
@@ -78,8 +77,6 @@ CREATE UNLOGGED TABLE IF NOT EXISTS posts (
   path      BIGINT[]
 );
 
-CREATE INDEX index_post_author ON posts(author);
-CREATE INDEX index_post_forum ON posts(forum);
 CREATE INDEX index_post_path ON posts((path[1]));
 CREATE INDEX index_post_thread_create_id ON posts(thread, created, id);
 CREATE INDEX index_post_id_thread ON posts(thread, id);
@@ -133,6 +130,42 @@ CREATE UNLOGGED TABLE IF NOT EXISTS usersForums (
   UNIQUE (forum, username)
 );
 
-
-CREATE INDEX index_users_forums_user ON usersForums (username);
 CREATE INDEX index_users_forums_forum ON usersForums USING HASH (forum);
+CREATE INDEX index_users_forums ON usersForums (forum, username);
+
+
+/* ------------------ */
+
+CREATE OR REPLACE FUNCTION add_users_forums()
+  RETURNS TRIGGER AS
+$add_users_forums$
+BEGIN
+  INSERT INTO usersForums (username, forum)
+  VALUES (new.author, new.forum)
+  ON CONFLICT DO NOTHING;
+  RETURN new;
+END;
+$add_users_forums$ LANGUAGE plpgsql;
+
+CREATE TRIGGER add_forum_user_new_post
+  AFTER INSERT
+  ON posts
+  FOR EACH ROW
+EXECUTE PROCEDURE add_users_forums();
+
+/* ----------------- */
+
+CREATE OR REPLACE FUNCTION update_forum_posts()
+  RETURNS TRIGGER AS
+$update_forum_posts$
+BEGIN
+  UPDATE forums SET posts = posts + 1 WHERE slug = new.forum;
+  RETURN new;
+END;
+$update_forum_posts$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_forum_posts
+  BEFORE INSERT
+  ON posts
+  FOR EACH ROW
+EXECUTE PROCEDURE update_forum_posts();

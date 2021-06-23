@@ -640,6 +640,9 @@ func serviceStatus(w http.ResponseWriter, r *http.Request) {
 */
 
 func createPost(w http.ResponseWriter, r *http.Request) {
+	tx, _ := db.Begin(ctx)
+	defer tx.Commit(ctx)
+
 	reqBody, _ := ioutil.ReadAll(r.Body)
 	vars := mux.Vars(r)
 	slug := vars["slug_or_id"]
@@ -657,7 +660,7 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 		threadSql = fmt.Sprintf("SELECT id, forum FROM threads WHERE id=%d", threadId)
 	}
 
-	rowsThread, _ := db.Query(ctx, threadSql)
+	rowsThread, _ := tx.Query(ctx, threadSql)
 	defer rowsThread.Close()
 
 	for rowsThread.Next() {
@@ -674,8 +677,6 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var sql string
-
 	var posts []Post
 	json.Unmarshal(reqBody, &posts)
 
@@ -686,8 +687,7 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 			posts[i].Created = timeNowStr
 		}
 
-		sql = fmt.Sprintf("INSERT INTO posts (author, created, forum, parent, thread, message) VALUES ('%s','%s','%s',%d,%d,'%s') RETURNING id", posts[i].Author, posts[i].Created, thread.Forum, posts[i].Parent, thread.ID, posts[i].Message)
-		err := db.QueryRow(ctx, sql).Scan(&posts[i].ID)
+		err := tx.QueryRow(ctx, "INSERT INTO posts (author, created, forum, parent, thread, message) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id", posts[i].Author, posts[i].Created, thread.Forum, posts[i].Parent, thread.ID, posts[i].Message).Scan(&posts[i].ID)
 
 		if err != nil {
 			if strings.Contains(err.Error(), "insert or update") {
@@ -712,11 +712,10 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 		posts[i].Thread = thread.ID
 		posts[i].Forum = thread.Forum
 
-		sql3 := fmt.Sprintf("INSERT INTO usersForums (username, forum) VALUES ('%s','%s')", posts[i].Author, thread.Forum)
-		db.Exec(ctx, sql3)
+		//db.Exec(ctx, "INSERT INTO usersForums (username, forum) VALUES ($1, $2)", posts[i].Author, thread.Forum)
 	}
 
-	db.Exec(ctx, fmt.Sprintf("UPDATE forums SET posts = posts + %d WHERE slug='%s'", len(posts), thread.Forum))
+	//db.Exec(ctx, "UPDATE forums SET posts = posts + $1 WHERE slug=$2", len(posts), thread.Forum)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
