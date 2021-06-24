@@ -131,7 +131,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS usersForums (
 );
 
 CREATE INDEX index_users_forums_forum ON usersForums USING HASH (forum);
-CREATE INDEX index_users_forums ON usersForums (forum, username);
+CREATE INDEX index_users_forums ON usersForums USING HASH (username);
 
 
 /* ------------------ */
