@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,8 +16,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/valyala/fasthttp"
-	"github.com/valyala/fasthttp/fasthttpadaptor"
+	_ "github.com/lib/pq"
 )
 
 var ctx = context.Background()
@@ -152,7 +152,7 @@ func createForum(w http.ResponseWriter, r *http.Request) {
 			db.QueryRow(ctx, sqlString2).Scan(&got.Title, &got.User, &got.Slug, &got.Posts, &got.Threads)
 
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict)
+			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(got)
 			return
 		}
@@ -1255,6 +1255,7 @@ func userChange(w http.ResponseWriter, r *http.Request) {
 
 func handleRequests() { // РОУТЫ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	myRouter := mux.NewRouter().StrictSlash(true)
+	myRouter.Queries("query")
 
 	myRouter.HandleFunc("/api/forum/create", createForum).Methods("POST")
 	myRouter.HandleFunc("/api/forum/{slug}/details", detailsForum)
@@ -1273,8 +1274,7 @@ func handleRequests() { // РОУТЫ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	myRouter.HandleFunc("/api/user/{nickname}/create", createUser).Methods("POST")
 	myRouter.HandleFunc("/api/user/{nickname}/profile", userInfo).Methods("GET")
 	myRouter.HandleFunc("/api/user/{nickname}/profile", userChange).Methods("POST")
-
-	fasthttp.ListenAndServe("localhost:5000", fasthttpadaptor.NewFastHTTPHandler(myRouter))
+	log.Fatal(http.ListenAndServe(":5000", myRouter))
 }
 
 func main() {
