@@ -153,6 +153,12 @@ CREATE TRIGGER add_forum_user_new_post
   FOR EACH ROW
 EXECUTE PROCEDURE add_users_forums();
 
+CREATE TRIGGER add_forum_user
+  AFTER INSERT
+  ON threads
+  FOR EACH ROW
+EXECUTE PROCEDURE add_users_forums();
+
 /* ----------------- */
 
 CREATE OR REPLACE FUNCTION update_forum_posts()
@@ -169,3 +175,20 @@ CREATE TRIGGER update_forum_posts
   ON posts
   FOR EACH ROW
 EXECUTE PROCEDURE update_forum_posts();
+
+
+
+CREATE OR REPLACE FUNCTION update_forum_threads()
+  RETURNS TRIGGER AS
+$update_forum_posts$
+BEGIN
+  UPDATE forums SET threads = threads + 1 WHERE slug = new.forum;
+  RETURN new;
+END;
+$update_forum_posts$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_forum_posts
+  AFTER INSERT
+  ON threads
+  FOR EACH ROW
+EXECUTE PROCEDURE update_forum_threads();
