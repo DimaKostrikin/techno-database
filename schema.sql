@@ -35,7 +35,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS users (
 
 CREATE INDEX index_unique_email ON users USING HASH (email);
 
-CREATE INDEX index_unique_nickname ON users (nickname);
+CREATE INDEX index_unique_nickname ON users USING HASH (nickname);
 
 
 CREATE UNLOGGED TABLE IF NOT EXISTS forums (
@@ -64,6 +64,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS threads (
 
 CREATE INDEX index_unique_slug_thread ON threads USING HASH(slug);
 CREATE INDEX forum_created_threads on threads (forum, created);
+CREATE INDEX index_threads_forum on threads (forum);
 
 CREATE UNLOGGED TABLE IF NOT EXISTS posts (
   id        BIGSERIAL                   NOT NULL PRIMARY KEY,
@@ -132,7 +133,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS usersForums (
 
 CREATE INDEX index_users_forums_forum ON usersForums USING HASH (forum);
 CREATE INDEX index_users_forums ON usersForums USING HASH (username);
-
+CREATE INDEX index_users_forums_all ON usersForums (forum, username);
 
 /* ------------------ */
 
