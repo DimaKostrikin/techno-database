@@ -133,7 +133,6 @@ func createForum(w http.ResponseWriter, r *http.Request) {
 	forum.User = userName
 
 	if err != nil {
-		fmt.Println(err)
 		if strings.Contains(err.Error(), "insert or update") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
